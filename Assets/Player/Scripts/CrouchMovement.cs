@@ -9,6 +9,9 @@ public class CrouchMovement : MonoBehaviour
     private Rigidbody _rb;
     private PlayerMovement _playerMovement;
 
+    //sounds
+    [SerializeField] private AudioClip Slide;
+
     //Other
     private float _timer = 0f;
 
@@ -30,6 +33,19 @@ public class CrouchMovement : MonoBehaviour
         _playerMovement = GetComponent<PlayerMovement>();
     }
 
+    private void Update()
+    {
+        if (_rb.velocity.magnitude > 12 && _playerMovement.GetGrounded() == true && isCrouching == true && AudioManager.Instance.SlidingSFXIsPlaying() == false) AudioManager.Instance.PlaySlidingSFX(Slide);
+
+        if (_rb.velocity.magnitude < 12 || _timer >= 0.2f) AudioManager.Instance.StopSlidingSFX();
+
+        if (_playerMovement.GetGrounded() == false)
+        {
+            _timer += 1 * Time.deltaTime;
+        }
+        else { _timer = 0; }
+    }
+
     public void StartCrouch()
     {
         isCrouching = true;
@@ -47,6 +63,7 @@ public class CrouchMovement : MonoBehaviour
     public void StopCrouch()
     {
         isCrouching = false;
+        AudioManager.Instance.StopSlidingSFX();
         transform.localScale = _playerMovement.getPlayerScale();
         transform.position = new Vector3(transform.position.x, transform.position.y + 0.5f, transform.position.z);
     }

@@ -8,6 +8,7 @@ public class PlayerMovement : MonoBehaviour {
     //Assingables
     [SerializeField] private Transform _playerCam;
     [SerializeField] private Transform _orientation;
+    [SerializeField] private PhysicMaterial _physicMaterial;
     private Rigidbody _rb;
     
     //Rotation and look
@@ -57,6 +58,8 @@ public class PlayerMovement : MonoBehaviour {
         _playerScale =  transform.localScale;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+        _physicMaterial.dynamicFriction = 0;
+        _physicMaterial.staticFriction = 0;
     }
     
     private void FixedUpdate()
@@ -67,6 +70,14 @@ public class PlayerMovement : MonoBehaviour {
     private void Update()
     {
         Look();
+        GetComponent<WallrunMovement>().CheckForWall();
+        GetComponent<WallrunMovement>().WallRunInput();
+        SoundCheck();
+    }
+
+    public void SoundCheck()
+    {
+        if (_rb.velocity.magnitude > 15 && _grounded == true && GetComponent<CrouchMovement>().isCrouching == false && AudioManager.Instance.WalkingSFXIsPlaying() == false ) AudioManager.Instance.PlayWalkingSFX(Walk);
     }
 
     public void CounterMovementSetter()
@@ -171,6 +182,31 @@ public class PlayerMovement : MonoBehaviour {
                 _rb.velocity = new Vector3(vel.x, 0, vel.z);
             else if (_rb.velocity.y > 0)
                 _rb.velocity = new Vector3(vel.x, vel.y / 2, vel.z);
+
+            Invoke(nameof(ResetJump), _jumpCooldown);
+        }
+
+        //Walljump
+        if (GetComponent<WallrunMovement>().GetWallrunning())
+        {
+            _readyToJump = false;
+
+            if (GetComponent<WallrunMovement>().GetWallrunningRight() && Input.GetKey(KeyCode.Space))
+            {
+                _rb.AddForce(Vector2.up * _jumpForce * 2f);
+                _rb.AddForce(_normalVector * _jumpForce * 1f);
+                _rb.AddForce(-_orientation.right * _jumpForce * 3.2f);
+            }
+
+            if (GetComponent<WallrunMovement>().GetWallrunningLeft() && Input.GetKey(KeyCode.Space))
+            {
+                _rb.AddForce(Vector2.up * _jumpForce * 2f);
+                _rb.AddForce(_normalVector * _jumpForce * 1f);
+                _rb.AddForce(_orientation.right * _jumpForce * 3.2f);
+            }
+
+            //Always add forward force
+            _rb.AddForce(_orientation.forward * _jumpForce * 1f);
 
             Invoke(nameof(ResetJump), _jumpCooldown);
         }
