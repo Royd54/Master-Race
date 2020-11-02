@@ -3,16 +3,13 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-public class PlayerMovement : MonoBehaviour
-{
+public class PlayerMovement : MonoBehaviour {
 
     //Assingables
     [SerializeField] private Transform _playerCam;
     [SerializeField] private Transform _orientation;
-
-    //Other
     private Rigidbody _rb;
-
+    
     //Rotation and look
     private float _xRotation;
     private float _sensitivity = 50f;
@@ -21,35 +18,47 @@ public class PlayerMovement : MonoBehaviour
     //Movement
     [SerializeField] private float _moveSpeed = 4500;
     [SerializeField] private float _maxSpeed = 20;
+    [SerializeField] bool _maxSpeedCooldown = false;
     [SerializeField] private bool _grounded;
     [SerializeField] private LayerMask _whatIsGround;
 
     [SerializeField] public float _counterMovement = 0.175f;
     [SerializeField] private float _maxSlopeAngle = 35f;
     private float _threshold = 0.01f;
+    private Vector3 _playerScale;
+
+    //Jumping
+    [SerializeField] private float _jumpForce = 550f;
+    private Vector3 _normalVector = Vector3.up;
+    private bool _readyToJump = true;
+    private float _jumpCooldown = 0.25f;
 
     //Input
     float x, y;
-    bool jumping, sprinting, crouching, isCrouching;
-
-    //Jumping
-    private Vector3 _normalVector = Vector3.up;
-
-    //Impacts/particles 
+    bool jumping, sprinting, crouching;
+    
+    //Particles
+    [SerializeField] private ParticleSystem _ps;
+    [SerializeField] private ParticleSystem.EmissionModule _em;
     private bool _highSpeedImpact = false;
+    private ParticleSystem dustParticle;
+    public GameObject dustPuff;
+
+    //sounds
+    [SerializeField] private AudioClip Walk;
 
     void Awake()
     {
         _rb = GetComponent<Rigidbody>();
     }
-
+    
     void Start()
     {
-        _playerScale = transform.localScale;
+        _playerScale =  transform.localScale;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
-
+    
     private void FixedUpdate()
     {
         Movement();
@@ -60,13 +69,12 @@ public class PlayerMovement : MonoBehaviour
         Look();
     }
 
-    private void OnCollisionEnter(Collision collision)
+    public void CounterMovementSetter()
     {
-        if (collision.relativeVelocity.magnitude > 27.5f)
-        {
-            dustPuff.GetComponent<ParticleSystem>().startSpeed = collision.relativeVelocity.magnitude / 10;
-            _highSpeedImpact = true;
-        }
+        _counterMovement = 0;
+        _maxSpeed = 50f;
+        _maxSpeedCooldown = true;
+        StartCoroutine(GetComponent<CrouchMovement>().Timer());
     }
 
     //Receives movement values from the PlayerInput class, and uses those values for the movement calculations
@@ -76,23 +84,29 @@ public class PlayerMovement : MonoBehaviour
         y = receivedY;
         jumping = receivedJumping;
         crouching = receivedCrouching;
+
+        //Crouching
+        if (Input.GetKeyDown(KeyCode.LeftControl) && receivedCrouching)
+            GetComponent<CrouchMovement>().StartCrouch();
+        if (Input.GetKeyUp(KeyCode.LeftControl))
+            GetComponent<CrouchMovement>().StopCrouch();
     }
 
     private void Movement()
     {
         //Extra gravity
         _rb.AddForce(Vector3.down * Time.deltaTime * 10);
-
+        
         //Find actual velocity relative to where player is looking
         Vector2 mag = FindVelRelativeToLook();
         float xMag = mag.x, yMag = mag.y;
 
         //Counteract sliding and sloppy movement
         CounterMovement(x, y, mag);
-
+        
         //If holding jump && ready to jump, then jump
         if (_readyToJump && jumping) Jump();
-
+        
         //If sliding down a ramp, add force down so player stays grounded and also builds speed
         if (crouching && _grounded && _readyToJump)
         {
@@ -108,7 +122,7 @@ public class PlayerMovement : MonoBehaviour
 
         //Some multipliers
         float multiplier = 1f, multiplierV = 1f;
-
+        
         // Movement in air
         if (!_grounded)
         {
@@ -123,8 +137,23 @@ public class PlayerMovement : MonoBehaviour
         _rb.AddForce(_orientation.transform.forward * y * _moveSpeed * Time.deltaTime * multiplier * multiplierV);
         _rb.AddForce(_orientation.transform.right * x * _moveSpeed * Time.deltaTime * multiplier);
 
-        //insert speed player feedback later
+        //Makes particles that give player speed feedback
+        _em = _ps.emission;
+
+        if (_rb.velocity.magnitude > 30)
+        {
+            _em.rateOverTime = _rb.velocity.magnitude * 2.5f;
+            if (_ps.emissionRate > 1000f)
+            {
+                _em.rateOverTime = 1000f;
+            }
+        }
+        else
+        {
+            _em.rateOverTime = 0f;
+        }
     }
+
 
     private void Jump()
     {
@@ -147,16 +176,6 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    private void ResetJump()
-    {
-        _readyToJump = true;
-    }
-
-    private void ActivateGravity()
-    {
-        _rb.useGravity = true;
-    }
-
     private float desiredX;
     private void Look()
     {
@@ -172,31 +191,8 @@ public class PlayerMovement : MonoBehaviour
         _xRotation = Mathf.Clamp(_xRotation, -90f, 90f);
 
         //Perform the rotations
-        _playerCam.transform.localRotation = Quaternion.Euler(_xRotation, desiredX, _wallRunCameraTilt);
+        _playerCam.transform.localRotation = Quaternion.Euler(_xRotation, desiredX, GetComponent<WallrunMovement>().GetWallrunCameraTilt());
         _orientation.transform.localRotation = Quaternion.Euler(0, desiredX, 0);
-    }
-
-    private void CounterMovement(float x, float y, Vector2 mag)
-    {
-        if (!_grounded || jumping) return;
-
-        //Counter movement
-        if (Math.Abs(mag.x) > _threshold && Math.Abs(x) < 0.05f || (mag.x < -_threshold && x > 0) || (mag.x > _threshold && x < 0))
-        {
-            _rb.AddForce(_moveSpeed * _orientation.transform.right * Time.deltaTime * -mag.x * _counterMovement);
-        }
-        if (Math.Abs(mag.y) > _threshold && Math.Abs(y) < 0.05f || (mag.y < -_threshold && y > 0) || (mag.y > _threshold && y < 0))
-        {
-            _rb.AddForce(_moveSpeed * _orientation.transform.forward * Time.deltaTime * -mag.y * _counterMovement);
-        }
-
-        //Limit diagonal running. This will also cause a full stop if sliding fast and un-crouching, so not optimal.
-        if (Mathf.Sqrt((Mathf.Pow(_rb.velocity.x, 2) + Mathf.Pow(_rb.velocity.z, 2))) > _maxSpeed)
-        {
-            float fallspeed = _rb.velocity.y;
-            Vector3 n = _rb.velocity.normalized * _maxSpeed;
-            _rb.velocity = new Vector3(n.x, fallspeed, n.z);
-        }
     }
 
     public Vector2 FindVelRelativeToLook()
@@ -214,6 +210,36 @@ public class PlayerMovement : MonoBehaviour
         return new Vector2(xMag, yMag);
     }
 
+    private void CounterMovement(float x, float y, Vector2 mag)
+    {
+        if (!_grounded || jumping) return;
+
+        //Slow down sliding
+        if (crouching)
+        {
+            _rb.AddForce(_moveSpeed * Time.deltaTime * -_rb.velocity.normalized * GetComponent<CrouchMovement>().GetCrouchCountermovement());
+            return;
+        }
+
+        //Counter movement
+        if (Math.Abs(mag.x) > _threshold && Math.Abs(x) < 0.05f || (mag.x < -_threshold && x > 0) || (mag.x > _threshold && x < 0))
+        {
+            _rb.AddForce(_moveSpeed * _orientation.transform.right * Time.deltaTime * -mag.x * _counterMovement);
+        }
+        if (Math.Abs(mag.y) > _threshold && Math.Abs(y) < 0.05f || (mag.y < -_threshold && y > 0) || (mag.y > _threshold && y < 0))
+        {
+            _rb.AddForce(_moveSpeed * _orientation.transform.forward * Time.deltaTime * -mag.y * _counterMovement);
+        }
+        
+        //Limit diagonal running. This will also cause a full stop if sliding fast and un-crouching, so not optimal.
+        if (Mathf.Sqrt((Mathf.Pow(_rb.velocity.x, 2) + Mathf.Pow(_rb.velocity.z, 2))) > _maxSpeed)
+        {
+            float fallspeed = _rb.velocity.y;
+            Vector3 n = _rb.velocity.normalized * _maxSpeed;
+            _rb.velocity = new Vector3(n.x, fallspeed, n.z);
+        }
+    }
+
     private bool IsFloor(Vector3 v)
     {
         float angle = Vector3.Angle(Vector3.up, v);
@@ -221,7 +247,7 @@ public class PlayerMovement : MonoBehaviour
     }
 
     private bool cancellingGrounded;
-
+    
     private void OnCollisionStay(Collision other)
     {
         //Make sure we are only checking for walkable layers
@@ -237,7 +263,8 @@ public class PlayerMovement : MonoBehaviour
             {
                 if (_highSpeedImpact)
                 {
-                    //play land particle here later
+                    GameObject dustObject = Instantiate(dustPuff, this.transform.position, this.transform.rotation) as GameObject;
+                    dustParticle = dustObject.GetComponent<ParticleSystem>();                                                     
                     _highSpeedImpact = false;
                 }
 
@@ -257,9 +284,52 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (collision.relativeVelocity.magnitude > 27.5f)
+        {
+            dustPuff.GetComponent<ParticleSystem>().startSpeed = collision.relativeVelocity.magnitude / 10;
+            _highSpeedImpact = true;
+        }
+    }
+
+    private void ResetJump()
+    {
+        _readyToJump = true;
+    }
+
+    private void ActivateGravity()
+    {
+        _rb.useGravity = true;
+    }
+
     private void StopGrounded()
     {
         _grounded = false;
     }
+    
+    public bool GetGrounded()
+    {
+        return _grounded;
+    }
 
+    public void SetCounterMovement(float amount)
+    {
+        _counterMovement = amount;
+    }
+
+    public void SetMaxSpeed(float amount)
+    {
+        _maxSpeed = amount;
+    }
+
+    public void SetMaxSpeedCooldown(bool trigger)
+    {
+        _maxSpeedCooldown = trigger;
+    }
+
+    public Vector3 getPlayerScale()
+    {
+        return _playerScale;
+    }
 }
