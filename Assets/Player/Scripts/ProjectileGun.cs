@@ -172,4 +172,17 @@ public class ProjectileGun : MonoBehaviour
         bulletsLeft = _magazineSize;
         reloading = false;
     }
+
+    public void DisableTrail2(TrailRenderer trail)
+    {
+        if (trail.time < 0.00001f)
+        {
+            _muzzleTrailRenderer.GetComponent<TrailRenderer>().enabled = false;
+            return;
+        }
+        else
+        {
+            trail.time = Mathf.Lerp(trail.time, -trail.time, 0.01f);
+        }
+    }
 }
